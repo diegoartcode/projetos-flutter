@@ -1,0 +1,91 @@
+Cria projeto flutter
+flutter create crud_produtos
+
+Abrir projeto flutter
+cd crud_produtos
+
+Rodar projeto flutter
+flutter run
+
+
+Instalar o Firebase CLI
+O Firebase CLI é instalado globalmente pelo NPM. Execute:
+npm install -g firebase-tools
+
+Quando a instalação terminar, teste:
+firebase --version
+
+Erro - firebase não é reconhecido
+Mensagem apresentada
+
+firebase : O termo 'firebase' não é reconhecido
+como nome de cmdlet, função, arquivo de script
+ou programa operável.
+
+Causa: o Firebase CLI foi instalado, mas o PowerShell não conseguiu localizar o executável porque o caminho de instalação do NPM não estava disponível no PATH.
+
+Solução utilizada:
+
+Primeiro, descubra onde os programas globais do NPM são instalados:
+npm config get prefix
+
+No ambiente que configuramos, retornou:
+C:\Users\seu.usuario\AppData\Roaming\npm
+
+
+Em seguida, execute:
+$npmPath = npm config get prefix
+
+$env:Path += ";$npmPath"
+
+Teste novamente:
+firebase --version
+
+
+Realizar o login no Firebase
+Execute:
+firebase login
+
+Para confirmar que o login foi realizado:
+firebase projects:list
+
+Instalar o FlutterFire CLI
+O FlutterFire CLI é diferente do Firebase CLI.
+
+O Firebase CLI é utilizado para trabalhar com os projetos Firebase. Já o FlutterFire CLI configura a conexão desses projetos com aplicativos Flutter.
+
+Execute:
+dart pub global activate flutterfire_cli
+
+Dentro do projeto Flutter, instale as dependências:
+flutter pub add firebase_core
+flutter pub add cloud_firestore
+
+Erro - flutterfire não é reconhecido
+Ao executar:
+flutterfire configure
+
+
+O PowerShell apresentou:
+flutterfire : O termo 'flutterfire' não é
+reconhecido como nome de cmdlet, função,
+arquivo de script ou programa operável.
+
+Causa: o Dart instalou o FlutterFire CLI, mas a pasta dos executáveis globais não estava configurada no PATH.
+
+Solução:
+
+Execute:
+$env:Path += ";$env:LOCALAPPDATA\Pub\Cache\bin"
+
+Depois, teste:
+flutterfire --version
+
+
+configuração flutterfire
+execute:
+flutterfire configure
+
+
+Se ainda não funcionar, tente diretamente pelo Dart:
+dart pub global run flutterfire_cli:flutterfire configure

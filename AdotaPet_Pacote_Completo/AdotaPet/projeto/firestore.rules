@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function auth(){return request.auth != null;}
+  function up(uid){return /databases/$(database)/documents/usuarios/$(uid);}
+  function ap(id){return /databases/$(database)/documents/animais/$(id);}
+  function sp(id){return /databases/$(database)/documents/solicitacoes/$(id);}
+  function active(uid){return exists(up(uid)) && get(up(uid)).data.get('ativo',true)==true;}
+  function logged(){return auth() && active(request.auth.uid);}
+  function admin(){return logged() && get(up(request.auth.uid)).data.tipo=='admin';}
+  function common(){return logged() && get(up(request.auth.uid)).data.tipo=='usuario';}
+  function changed(keys){return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);}
+  function now(){return request.resource.data.atualizadoEm==request.time;}
+  function text(v,max){return v is string && v.size()>0 && v.size()<=max;}
+  match /usuarios/{uid} {
+   function valid(){let d=request.resource.data;return text(d.nome,150)&&text(d.telefone,30)&&text(d.cidade,150);}
+   allow create: if auth() && request.auth.uid==uid && request.resource.data.keys().hasOnly(['nome','email','telefone','cidade','tipo','ativo','criadoEm']) && request.resource.data.tipo=='usuario' && request.resource.data.ativo==true && request.resource.data.email==request.auth.token.email && request.resource.data.criadoEm==request.time && valid();
+   allow read: if auth() && (request.auth.uid==uid || admin());
+   allow update: if logged() && request.auth.uid==uid && valid() && now() && changed(['nome','telefone','cidade','atualizadoEm']);
+   allow update: if admin() && uid!=request.auth.uid && resource.data.tipo=='usuario' && request.resource.data.ativo is bool && now() && changed(['ativo','atualizadoEm']);
+   allow delete: if false;
+  }
+  match /animais/{id} {
+   function owner(){return common() && resource.data.doadorId==request.auth.uid;}
+   function editable(){return resource.data.status in ['pendente','disponivel','reprovado'];}
+   function valid(){let d=request.resource.data;let k=['nome','especie','raca','idadeMeses','porte','sexo','descricao','vacinado','castrado','fotoBase64','doadorId','status','criadoEm','atualizadoEm'];return d.keys().hasAll(k)&&d.keys().hasOnly(k)&&text(d.nome,100)&&d.especie in ['Cachorro','Gato','Outro']&&d.raca is string&&d.raca.size()<=100&&d.idadeMeses is int&&d.idadeMeses>=0&&d.porte in ['Pequeno','Médio','Grande']&&d.sexo in ['Macho','Fêmea']&&text(d.descricao,2000)&&d.vacinado is bool&&d.castrado is bool&&d.fotoBase64 is string&&d.fotoBase64.size()<=136536&&d.doadorId is string&&d.criadoEm is timestamp&&d.atualizadoEm is timestamp;}
+   allow create: if common()&&valid()&&request.resource.data.doadorId==request.auth.uid&&request.resource.data.status=='pendente'&&request.resource.data.criadoEm==request.time&&now();
+   allow read: if logged()&&(resource.data.status=='disponivel'||owner()||admin());
+   allow update: if owner()&&editable()&&valid()&&request.resource.data.status=='pendente'&&now()&&changed(['nome','especie','raca','idadeMeses','porte','sexo','descricao','vacinado','castrado','fotoBase64','fotoUrl','status','atualizadoEm']);
+   allow update: if admin()&&now()&&changed(['status','atualizadoEm'])&&((resource.data.status=='pendente'&&request.resource.data.status=='disponivel'&&active(resource.data.doadorId))||(resource.data.status in ['pendente','disponivel']&&request.resource.data.status=='reprovado'));
+   // Transições atômicas: o pedido correspondente deve mudar junto.
+   function accept(){let sid=request.resource.data.solicitacaoAceitaId;let s=get(sp(sid)).data;let n=getAfter(sp(sid)).data;return s.status=='pendente'&&n.status=='aceita'&&s.animalId==id&&s.doadorId==request.auth.uid&&s.adotanteId==request.resource.data.adotanteId&&active(s.adotanteId)&&changed(['status','adotanteId','solicitacaoAceitaId','atualizadoEm']);}
+   function finish(cancel){let sid=resource.data.solicitacaoAceitaId;let s=get(sp(sid)).data;let n=getAfter(sp(sid)).data;return s.status=='aceita'&&s.animalId==id&&s.doadorId==request.auth.uid&&s.adotanteId==resource.data.adotanteId&&(cancel?(n.status=='cancelada'&&!request.resource.data.keys().hasAny(['adotanteId','solicitacaoAceitaId'])&&changed(['status','adotanteId','solicitacaoAceitaId','atualizadoEm'])):(n.status=='concluida'&&changed(['status','atualizadoEm'])));}
+   allow update: if owner()&&now()&&((resource.data.status=='disponivel'&&request.resource.data.status=='em_adocao'&&accept())||(resource.data.status=='em_adocao'&&request.resource.data.status=='adotado'&&finish(false))||(resource.data.status=='em_adocao'&&request.resource.data.status=='disponivel'&&finish(true)));
+   allow delete: if editable()&&(owner()||admin());
+  }
+  match /solicitacoes/{sid} {
+   function donor(){return common()&&resource.data.doadorId==request.auth.uid;}
+   function adopter(){return common()&&resource.data.adotanteId==request.auth.uid;}
+   function valid(){let d=request.resource.data;let a=get(ap(d.animalId)).data;let u=get(up(request.auth.uid)).data;return d.keys().hasOnly(['animalId','animalNome','adotanteId','adotanteNome','doadorId','mensagem','status','criadoEm','atualizadoEm'])&&d.animalId is string&&sid==d.animalId+'_'+request.auth.uid&&d.adotanteId==request.auth.uid&&d.doadorId==a.doadorId&&d.doadorId!=request.auth.uid&&a.status=='disponivel'&&active(a.doadorId)&&d.animalNome==a.nome&&d.adotanteNome==u.nome&&text(d.adotanteNome,150)&&text(d.mensagem,1000)&&d.status=='pendente'&&d.criadoEm==request.time&&now();}
+   allow create: if common()&&valid();
+   allow read: if logged()&&(resource.data.adotanteId==request.auth.uid||resource.data.doadorId==request.auth.uid||admin());
+   function transition(){let a=get(ap(resource.data.animalId)).data;let n=getAfter(ap(resource.data.animalId)).data;let st=request.resource.data.status;return a.doadorId==request.auth.uid&&((resource.data.status=='pendente'&&st=='aceita'&&a.status=='disponivel'&&active(resource.data.adotanteId)&&n.status=='em_adocao'&&n.solicitacaoAceitaId==sid&&n.adotanteId==resource.data.adotanteId)||(resource.data.status=='aceita'&&a.status=='em_adocao'&&a.solicitacaoAceitaId==sid&&((st=='concluida'&&n.status=='adotado'&&n.solicitacaoAceitaId==sid&&n.adotanteId==resource.data.adotanteId)||(st=='cancelada'&&n.status=='disponivel'&&!n.keys().hasAny(['adotanteId','solicitacaoAceitaId'])))));}
+   allow update: if now()&&changed(['status','atualizadoEm'])&&((adopter()&&resource.data.status=='pendente'&&request.resource.data.status=='cancelada')||(donor()&&resource.data.status=='pendente'&&request.resource.data.status=='recusada')||(donor()&&transition()));
+   allow delete: if false;
+   match /mensagens/{mid} {
+    function pedido(){return get(sp(sid)).data;}
+    function participant(){let s=pedido();return common()&&(s.doadorId==request.auth.uid||s.adotanteId==request.auth.uid);}
+    function canRead(){return participant()&&pedido().status in ['aceita','concluida'];}
+    allow get: if canRead();
+    allow list: if canRead()&&request.query.limit<=50;
+    allow create: if participant()&&pedido().status=='aceita'&&active(pedido().adotanteId)&&active(pedido().doadorId)&&request.resource.data.keys().hasOnly(['remetenteId','texto','criadoEm'])&&request.resource.data.remetenteId==request.auth.uid&&text(request.resource.data.texto,500)&&request.resource.data.criadoEm==request.time;
+    allow update,delete: if false;
+   }
+  }
+ }
+}

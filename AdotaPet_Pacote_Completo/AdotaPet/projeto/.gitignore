@@ -1,0 +1,13 @@
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+.firebase/
+.firebaserc
+firebase-debug.log
+lib/firebase_options.dart
+android/app/google-services.json
+android/key.properties
+*.jks
+*.keystore
+.env

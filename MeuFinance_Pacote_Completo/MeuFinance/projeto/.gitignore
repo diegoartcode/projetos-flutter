@@ -1,0 +1,11 @@
+.dart_tool/
+build/
+.flutter-plugins*
+.firebase/
+.firebaserc
+lib/firebase_options.dart
+android/app/google-services.json
+*.jks
+*.keystore
+key.properties
+.env

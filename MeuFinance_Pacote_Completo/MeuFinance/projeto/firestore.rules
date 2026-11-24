@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function dono(uid) { return request.auth != null && request.auth.uid == uid; }
+  function perfil(uid) { return dono(uid) && exists(/databases/$(database)/documents/usuarios/$(uid)); }
+  function texto(v,n) { return v is string && v.size() > 0 && v.size() <= n; }
+  function valor(v) { return v is int && v > 0 && v <= 99999999999; }
+  function tipo(v) { return v in ['receita','despesa']; }
+  function campos(d,k) { return d.keys().hasAll(k) && d.keys().hasOnly(k); }
+  function novo(d) { return d.criadoEm == request.time && d.atualizadoEm == request.time; }
+  function atualizado(d) { return d.criadoEm == resource.data.criadoEm && d.atualizadoEm == request.time; }
+  match /usuarios/{uid} {
+   allow get: if dono(uid);
+   allow create: if dono(uid) && campos(request.resource.data,['nome','email','moeda','criadoEm']) && texto(request.resource.data.nome,150) && request.resource.data.email == request.auth.token.email && request.resource.data.moeda == 'BRL' && request.resource.data.criadoEm == request.time;
+   allow update: if dono(uid) && texto(request.resource.data.nome,150) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome']);
+   match /categorias/{id} {
+    function valida(d) { return campos(d,['nome','nomeNormalizado','tipo','cor','icone','ativo','criadoEm','atualizadoEm']) && texto(d.nome,100) && texto(d.nomeNormalizado,100) && tipo(d.tipo) && d.cor is string && d.cor.matches('^#[0-9A-Fa-f]{6}$') && texto(d.icone,40) && d.ativo is bool; }
+    allow read: if perfil(uid);
+    allow create: if perfil(uid) && valida(request.resource.data) && request.resource.data.ativo == true && novo(request.resource.data);
+    allow update: if perfil(uid) && valida(request.resource.data) && atualizado(request.resource.data) && request.resource.data.tipo == resource.data.tipo;
+   }
+   match /movimentacoes/{id} {
+    function valida(d) { return campos(d,['descricao','tipo','valorCentavos','categoriaId','categoriaNome','formaPagamento','data','observacao','criadoEm','atualizadoEm']) && texto(d.descricao,150) && tipo(d.tipo) && valor(d.valorCentavos) && texto(d.categoriaId,100) && texto(d.categoriaNome,100) && d.formaPagamento in ['Pix','Dinheiro','Cartão de crédito','Cartão de débito','Transferência','Boleto','Outros'] && d.data is timestamp && d.data <= request.time && d.observacao is string && d.observacao.size() <= 500; }
+    function categoria(d) { let c = get(/databases/$(database)/documents/usuarios/$(uid)/categorias/$(d.categoriaId)).data; return c.ativo == true && c.tipo == d.tipo && c.nome == d.categoriaNome; }
+    function historica(d) { return d.categoriaId == resource.data.categoriaId && d.categoriaNome == resource.data.categoriaNome && d.tipo == resource.data.tipo; }
+    allow read, delete: if perfil(uid);
+    allow create: if perfil(uid) && valida(request.resource.data) && categoria(request.resource.data) && novo(request.resource.data);
+    allow update: if perfil(uid) && valida(request.resource.data) && (historica(request.resource.data) || categoria(request.resource.data)) && atualizado(request.resource.data);
+   }
+   match /metas/{id} {
+    function valida(d) { return campos(d,['nome','valorObjetivoCentavos','valorGuardadoCentavos','criadoEm','atualizadoEm']) && texto(d.nome,100) && valor(d.valorObjetivoCentavos) && d.valorGuardadoCentavos is int && d.valorGuardadoCentavos >= 0 && d.valorGuardadoCentavos <= 99999999999; }
+    allow read, delete: if perfil(uid);
+    allow create: if perfil(uid) && valida(request.resource.data) && novo(request.resource.data);
+    allow update: if perfil(uid) && valida(request.resource.data) && atualizado(request.resource.data);
+   }
+   match /orcamentos/{id} {
+    function valida(d) { return campos(d,['periodo','ano','mes','categoriaId','limiteCentavos','atualizadoEm']) && d.ano is int && d.ano >= 2000 && d.ano <= 9999 && d.mes is int && d.mes >= 1 && d.mes <= 12 && d.periodo is string && d.periodo == string(d.ano)+'_'+(d.mes < 10 ? '0' : '')+string(d.mes) && texto(d.categoriaId,100) && id == d.periodo+'_'+d.categoriaId && valor(d.limiteCentavos) && get(/databases/$(database)/documents/usuarios/$(uid)/categorias/$(d.categoriaId)).data.tipo == 'despesa' && d.atualizadoEm == request.time; }
+    allow read, delete: if perfil(uid);
+    allow create, update: if perfil(uid) && valida(request.resource.data);
+   }
+  }
+ }
+}
